@@ -7,20 +7,24 @@ declare module "react" {
   }
 }
 
-const fract = 0.1;
+const clamp = (x = 0, min = 0, max = 1) => Math.min(Math.max(x, min), max);
+
+const frict = 0.1;
+const maxV = 5;
+const maxWheel = Math.PI / 4;
 
 export default function App() {
   const [vehicle, setVehicle] = useState({
     x: 500,
     y: 100,
     speed: 0,
-    gCarA: 0,
-    gWheelA: Math.PI / 6,
+    rotation: 0,
     width: 50,
     length: 100,
-    wheelA: 0,
+    wheel: 0.5236,
     steering: "" as "" | "pointer" | "key",
     pressedKeys: {} as Record<string, unknown>,
+    trailer: { x: 370, y: 100, rotation: 0 },
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -34,24 +38,18 @@ export default function App() {
       Object.assign(canvas, { width: inlineSize, height: blockSize });
     });
 
-    const pointer = { pressed: false, movement: [0, 0] as vec2 };
-
     const onPointerDown = (e: PointerEvent) => {
       const { pointerId } = e;
-      pointer.pressed = true;
       setVehicle((prev) => ({ ...prev, steering: "pointer" }));
 
       const onPointerMove = (e: PointerEvent) => {
         if (e.pointerId !== pointerId) return;
-        const delta = (Math.PI / 2) * ((e.movementX * devicePixelRatio) / 480);
-        setVehicle((prev) => {
-          const wheelTargetA = prev.wheelA + delta;
-          return { ...prev, wheelA: wheelTargetA };
-        });
+        const delta =
+          (2 * maxWheel * (e.movementX * devicePixelRatio)) / screen.width;
+        setVehicle((prev) => ({ ...prev, wheel: prev.wheel + delta }));
       };
       const onPointerUp = (e: PointerEvent) => {
         if (e.pointerId !== pointerId) return;
-        pointer.pressed = false;
         setVehicle((prev) => {
           if (prev.steering !== "pointer") return prev;
           return { ...prev, steering: "" };
@@ -84,46 +82,38 @@ export default function App() {
         let accel = 0;
         if (prev.pressedKeys["KeyW"]) accel = 0.2;
         else if (prev.pressedKeys["KeyS"]) accel = -0.2;
-        let speed = 0;
-        if (prev.speed < 0) {
-          speed = Math.min(Math.max(prev.speed + accel + fract, -3), 0);
-        } else if (prev.speed > 0) {
-          speed = Math.min(Math.max(prev.speed + accel - fract, 0), 3);
-        } else if (accel) {
-          speed = Math.min(Math.max(prev.speed + accel - fract, -3), 3);
-        }
 
-        let dTargetWA = 0;
+        let { speed } = prev;
+        if (speed < 0) speed = clamp(speed + accel + frict, -maxV, 0);
+        else if (speed > 0) speed = clamp(speed + accel - frict, 0, maxV);
+        else if (accel) speed = clamp(speed + accel - frict, -maxV, maxV);
+
+        let deltaWheel = 0;
         let { steering } = prev;
         if (steering !== "pointer") {
+          const restoreTorque = -0.01 * Math.abs(speed) * Math.sin(prev.wheel);
+          deltaWheel = Math.asin(restoreTorque);
           steering = "key";
-          if (prev.pressedKeys["KeyA"]) dTargetWA = -0.02;
-          else if (prev.pressedKeys["KeyD"]) dTargetWA = 0.02;
+          if (prev.pressedKeys["KeyA"]) deltaWheel += -0.02;
+          else if (prev.pressedKeys["KeyD"]) deltaWheel += 0.02;
           else steering = "";
         }
 
         const vSpeed = vec2.fromValues(speed, 0);
-        vec2.rotate(vSpeed, vSpeed, [0, 0], prev.gWheelA);
+        vec2.rotate(vSpeed, vSpeed, [0, 0], prev.rotation + prev.wheel);
         const x = prev.x + vSpeed[0];
         const y = prev.y + vSpeed[1];
 
-        const l = prev.length;
-        const wheelA0 = prev.gWheelA - prev.gCarA;
+        const wheel = clamp(prev.wheel + deltaWheel, -maxWheel, maxWheel);
+        const torque = (speed / prev.length) * Math.sin(prev.wheel);
+        const rotation = prev.rotation + Math.asin(torque);
 
-        const maxA = Math.PI / 4;
-
-        let wheelA =
-          steering === "pointer"
-            ? prev.wheelA
-            : wheelA0 -
-              Math.asin(0.01 * Math.abs(speed) * Math.sin(wheelA0)) +
-              dTargetWA;
-
-        wheelA = Math.min(Math.max(wheelA, -maxA), maxA);
-
-        const gCarA = prev.gCarA + Math.asin((speed / l) * Math.sin(wheelA0));
-        const gWheelA = wheelA + gCarA;
-        return { ...prev, x, y, speed, gCarA, gWheelA, wheelA, steering };
+        const tXY = vec2.create();
+        vec2.rotate(tXY, [-prev.length - 30, 0], [0, 0], rotation);
+        const tTorque = (speed / prev.length) * Math.sin(rotation - prev.trailer.rotation);
+        const tRotation = prev.trailer.rotation + Math.asin(tTorque);
+        const trailer = { x: x + tXY[0], y: y + tXY[1], rotation: tRotation };
+        return { ...prev, x, y, speed, rotation, wheel, steering, trailer };
       });
     });
 
@@ -153,8 +143,8 @@ export default function App() {
       const center = (ctx.canvas.width - 480) / 2;
       ctx.fillRect(center, 10, 480, 24);
 
-      const wheelA = vehicle.gCarA - vehicle.gWheelA;
-      const wx = center + 240 - 240 * (wheelA / (Math.PI / 4));
+      const wheel = vehicle.wheel;
+      const wx = center + 240 * (1 + wheel / maxWheel);
       ctx.beginPath();
       ctx.ellipse(wx, 22, 12, 12, 0, 0, 2 * Math.PI);
 
@@ -164,7 +154,7 @@ export default function App() {
       const tmp: vec2 = [0, 0];
       const pos: vec2 = [vehicle.x, vehicle.y];
       const mat = mat3.fromTranslation(mat3.create(), pos);
-      mat3.rotate(mat, mat, vehicle.gCarA);
+      mat3.rotate(mat, mat, vehicle.rotation);
 
       const fl: vec2 = [0, -vehicle.width / 2];
       const fr: vec2 = [0, vehicle.width / 2];
@@ -175,7 +165,7 @@ export default function App() {
       vec2.transformMat3(rl, rl, mat);
       vec2.transformMat3(rr, rr, mat);
 
-      mat3.fromRotation(mat, vehicle.gCarA);
+      mat3.fromRotation(mat, vehicle.rotation);
       ctx.beginPath();
       let [x, y] = vec2.add(tmp, fl, vec2.transformMat3(tmp, [15, -5], mat));
       ctx.moveTo(x, y);
@@ -188,7 +178,27 @@ export default function App() {
       ctx.fillStyle = "#333333";
       ctx.fill();
 
-      mat3.fromRotation(mat, vehicle.gWheelA);
+      // trailer
+      const { trailer } = vehicle;
+      mat3.fromTranslation(mat, [trailer.x, trailer.y]);
+      mat3.rotate(mat, mat, trailer.rotation);
+      const tfl: vec2 = [15, -5 - vehicle.width / 2];
+      const tfr: vec2 = [15, 5 + vehicle.width / 2];
+      const trl: vec2 = [-15 - vehicle.length, 5 + vehicle.width / 2];
+      const trr: vec2 = [-15 - vehicle.length, -5 - vehicle.width / 2];
+      ctx.beginPath();
+      [x, y] = vec2.transformMat3(tfl, tfl, mat);
+      ctx.moveTo(x, y);
+      [x, y] = vec2.transformMat3(tfr, tfr, mat);
+      ctx.lineTo(x, y);
+      [x, y] = vec2.transformMat3(trl, trl, mat);
+      ctx.lineTo(x, y);
+      [x, y] = vec2.transformMat3(trr, trr, mat);
+      ctx.lineTo(x, y);
+      ctx.fillStyle = "#333333";
+      ctx.fill();
+
+      mat3.fromRotation(mat, vehicle.rotation + vehicle.wheel);
       for (const wheel of [fl, fr]) {
         ctx.beginPath();
         [x, y] = vec2.add(tmp, wheel, vec2.transformMat3(tmp, [-15, -5], mat));
@@ -203,7 +213,7 @@ export default function App() {
         ctx.fill();
       }
 
-      mat3.fromRotation(mat, vehicle.gCarA);
+      mat3.fromRotation(mat, vehicle.rotation);
       for (const wheel of [rl, rr]) {
         ctx.beginPath();
         [x, y] = vec2.add(tmp, wheel, vec2.transformMat3(tmp, [-15, -5], mat));
