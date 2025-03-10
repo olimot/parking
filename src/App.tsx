@@ -111,12 +111,13 @@ export default function App() {
         const { trailer: trailer0 } = prev;
         const tXY = vec2.rotate(
           vec2.create(),
-          [-prev.length - 45, 0],
+          [-prev.length, 0],
           [0, 0],
           rotation,
         );
         const tTorque =
-          (speed / trailer0.length) * Math.sin(rotation - trailer0.rotation);
+          (speed / trailer0.length) *
+          Math.sin(prev.rotation - trailer0.rotation);
         const trailer = {
           ...trailer0,
           x: x + tXY[0],
