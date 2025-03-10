@@ -19,12 +19,12 @@ export default function App() {
     y: 100,
     speed: 0,
     rotation: 0,
-    width: 50,
+    width: 65,
     length: 100,
     wheel: 0.5236,
     steering: "" as "" | "pointer" | "key",
     pressedKeys: {} as Record<string, unknown>,
-    trailer: { x: 370, y: 100, rotation: 0 },
+    trailer: { x: 370, y: 100, length: 323, rotation: 0 },
   });
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -108,11 +108,21 @@ export default function App() {
         const torque = (speed / prev.length) * Math.sin(prev.wheel);
         const rotation = prev.rotation + Math.asin(torque);
 
-        const tXY = vec2.create();
-        vec2.rotate(tXY, [-prev.length - 30, 0], [0, 0], rotation);
-        const tTorque = (speed / prev.length) * Math.sin(rotation - prev.trailer.rotation);
-        const tRotation = prev.trailer.rotation + Math.asin(tTorque);
-        const trailer = { x: x + tXY[0], y: y + tXY[1], rotation: tRotation };
+        const { trailer: trailer0 } = prev;
+        const tXY = vec2.rotate(
+          vec2.create(),
+          [-prev.length - 45, 0],
+          [0, 0],
+          rotation,
+        );
+        const tTorque =
+          (speed / trailer0.length) * Math.sin(rotation - trailer0.rotation);
+        const trailer = {
+          ...trailer0,
+          x: x + tXY[0],
+          y: y + tXY[1],
+          rotation: trailer0.rotation + Math.asin(tTorque),
+        };
         return { ...prev, x, y, speed, rotation, wheel, steering, trailer };
       });
     });
@@ -175,7 +185,7 @@ export default function App() {
       ctx.lineTo(x, y);
       [x, y] = vec2.add(tmp, rr, vec2.transformMat3(tmp, [-15, -5], mat));
       ctx.lineTo(x, y);
-      ctx.fillStyle = "#333333";
+      ctx.fillStyle = "#000000cc";
       ctx.fill();
 
       // trailer
@@ -184,8 +194,8 @@ export default function App() {
       mat3.rotate(mat, mat, trailer.rotation);
       const tfl: vec2 = [15, -5 - vehicle.width / 2];
       const tfr: vec2 = [15, 5 + vehicle.width / 2];
-      const trl: vec2 = [-15 - vehicle.length, 5 + vehicle.width / 2];
-      const trr: vec2 = [-15 - vehicle.length, -5 - vehicle.width / 2];
+      const trl: vec2 = [-15 - trailer.length, 5 + vehicle.width / 2];
+      const trr: vec2 = [-15 - trailer.length, -5 - vehicle.width / 2];
       ctx.beginPath();
       [x, y] = vec2.transformMat3(tfl, tfl, mat);
       ctx.moveTo(x, y);
@@ -195,7 +205,7 @@ export default function App() {
       ctx.lineTo(x, y);
       [x, y] = vec2.transformMat3(trr, trr, mat);
       ctx.lineTo(x, y);
-      ctx.fillStyle = "#333333";
+      ctx.fillStyle = "#000000cc";
       ctx.fill();
 
       mat3.fromRotation(mat, vehicle.rotation + vehicle.wheel);
